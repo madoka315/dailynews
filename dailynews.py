@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 
 from hoshino import Service, aiorequests
@@ -11,14 +12,22 @@ API = 'https://60s.viki.moe/v2/60s'
 
 
 async def fetch_news_image():
-    resp = await aiorequests.get(API, timeout=15)
-    info = await resp.json()
-    data = info.get('data') or {}
-    if info.get('code') != 200 or not data.get('image'):
-        raise ValueError(f'60s api 异常返回: {str(info)[:120]}')
-    if data.get('date') != str(datetime.date.today()):
-        raise ValueError(f'早报图源疑似停更: 接口日期 {data.get("date")}')
-    return data['image']
+    last_err = None
+    for i in range(10):
+        try:
+            resp = await aiorequests.get(API, timeout=15)
+            info = await resp.json()
+            data = info.get('data') or {}
+            if info.get('code') != 200 or not data.get('image'):
+                raise ValueError(f'60s api 异常返回: {str(info)[:120]}')
+            if data.get('date') != str(datetime.date.today()):
+                raise ValueError(f'早报图源疑似停更: 接口日期 {data.get("date")}')
+            return data['image']
+        except Exception as e:
+            last_err = e
+            sv.logger.warning(f'daily news error (attempt {i+1}/10): {type(e).__name__} {e}')
+            await asyncio.sleep(30)
+    raise last_err
 
 
 @sv.scheduled_job('cron', hour='8', minute='40', jitter=50)
